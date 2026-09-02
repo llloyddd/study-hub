@@ -6,11 +6,20 @@ import sqlite3
 from datetime import date
 
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_quill import st_quill
 
 DB_PATH = "notes.db"
 
-DEFAULT_SUBJECTS = ["Physics", "Pre-Col. Algebra", "General Biology"]
+DEFAULT_SUBJECTS = [
+    "Physics",
+    "Pre-Col. Algebra",
+    "General Biology",
+    "Practical Research",
+    "Entrepreneurship",
+    "FilAkad",
+    "Media & Information Literacy",
+]
 
 # Keyword hints used to infer a subject from an imported document.
 SUBJECT_KEYWORDS = {
@@ -29,6 +38,25 @@ SUBJECT_KEYWORDS = {
         "ecosystem", "mitosis", "meiosis", "protein", "enzyme", "membrane",
         "chromosome", "bacteria", "species", "tissue",
     ],
+    "Practical Research": [
+        "research", "hypothesis", "methodology", "qualitative", "quantitative",
+        "sampling", "respondents", "questionnaire", "literature review", "data",
+        "variable", "significance of the study", "scope and delimitation",
+    ],
+    "Entrepreneurship": [
+        "entrepreneur", "business", "market", "customer", "profit", "revenue",
+        "startup", "product", "marketing", "supply", "demand", "capital",
+        "value proposition", "business plan", "cash flow",
+    ],
+    "FilAkad": [
+        "filipino", "akademiko", "sanaysay", "wika", "pananaliksik", "lipunan",
+        "kultura", "panitikan", "diskurso", "sulatin", "pahayag", "talata",
+    ],
+    "Media & Information Literacy": [
+        "media", "information", "literacy", "misinformation", "disinformation",
+        "propaganda", "digital", "copyright", "netizen", "fake news", "source",
+        "bias", "audience", "platform",
+    ],
 }
 
 HIGHLIGHT_COLORS = ["#fff29c", "#a5d8ff", "#ffc9c9", "#b2f2bb", "#ffd8a8", False]
@@ -40,6 +68,9 @@ QUILL_TOOLBAR = [
     [{"list": "bullet"}, {"list": "ordered"}],
     ["clean"],
 ]
+
+# Height (px) of the scrollable notebook area.
+SCROLLER_H = 540
 
 
 def get_connection():
@@ -172,6 +203,230 @@ def bullets_to_html(bullets):
 
 
 # --------------------------------------------------------------------------- #
+# Notebook view (custom component: centred title + collapsible subject folders)
+# --------------------------------------------------------------------------- #
+NOTEBOOK_TEMPLATE = """
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body {
+    color: #1f1f1f;
+    font-family: "Source Sans Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { body { color: #e9e9e9; } }
+
+  #scroller {
+    height: __H__px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 4px 6px 0;
+    scroll-behavior: smooth;
+  }
+  #folders { padding-bottom: 220px; }
+
+  #brand {
+    text-align: center;
+    padding: 20px 12px 28px;
+    transition: opacity .2s linear, transform .2s linear;
+    will-change: opacity, transform;
+  }
+  #brand h1 {
+    margin: 0;
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1.15;
+  }
+  #brand .est {
+    margin: 8px 0 0;
+    font-size: .95rem;            /* half of the 1.9rem title */
+    font-style: italic;
+    opacity: .6;
+  }
+
+  .folder {
+    margin: 0 4px 10px;
+    border: 1px solid rgba(128, 128, 128, .3);
+    border-radius: 10px;
+    background: rgba(128, 128, 128, .05);
+    overflow: hidden;
+  }
+  .folder-header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 15px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+  .folder-header:hover { background: rgba(128, 128, 128, .12); }
+  .chev {
+    font-size: .8rem;
+    opacity: .65;
+    transition: transform .3s ease;
+  }
+  .folder.open .chev { transform: rotate(90deg); }
+  .folder-name { flex: 1; }
+  .folder-count {
+    font-size: .75rem;
+    font-weight: 500;
+    opacity: .5;
+    white-space: nowrap;
+  }
+
+  .folder-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows .35s ease;
+  }
+  .folder.open .folder-body { grid-template-rows: 1fr; }
+  .folder-body > .inner { overflow: hidden; }
+  .folder.open .folder-body > .inner { padding: 2px 15px 14px; }
+
+  .note { border-top: 1px solid rgba(128, 128, 128, .22); padding: 12px 2px; }
+  .note:first-child { border-top: 0; }
+  .note-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  .note-title { font-weight: 600; }
+  .note-date { font-size: .74rem; opacity: .5; white-space: nowrap; }
+  .note-body :is(h1, h2, h3) { margin: .5em 0 .25em; }
+  .note-body p { margin: .35em 0; }
+  .empty { margin: 8px 2px; opacity: .55; font-style: italic; }
+
+  #scroller::-webkit-scrollbar { width: 10px; }
+  #scroller::-webkit-scrollbar-track { background: transparent; }
+  #scroller::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, .4);
+    border-radius: 6px;
+  }
+</style>
+
+<div id="scroller">
+  <header id="brand">
+    <h1>Notes from St. Pedro Calungsod</h1>
+    <p class="est">est. 2026</p>
+  </header>
+  <div id="folders">
+    <!--FOLDERS-->
+  </div>
+</div>
+
+<script>
+  (function () {
+    var scroller = document.getElementById('scroller');
+    var brand = document.getElementById('brand');
+
+    // Accordion: only one folder open at a time; clicking the open folder
+    // (or a different one) closes the previous one.
+    document.querySelectorAll('.folder-header').forEach(function (header) {
+      header.addEventListener('click', function () {
+        var folder = header.parentElement;
+        var wasOpen = folder.classList.contains('open');
+        document.querySelectorAll('.folder.open').forEach(function (f) {
+          f.classList.remove('open');
+        });
+        if (!wasOpen) {
+          folder.classList.add('open');
+          folder.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      });
+    });
+
+    // Fade the title away once the subject list is scrolled far enough.
+    var FADE_START = 20, FADE_END = 120;
+    function onScroll() {
+      var y = scroller.scrollTop;
+      var t = (y - FADE_START) / (FADE_END - FADE_START);
+      t = Math.min(1, Math.max(0, t));
+      brand.style.opacity = String(1 - t);
+      brand.style.transform = 'translateY(' + (-t * 14) + 'px)';
+      brand.style.pointerEvents = t > 0.85 ? 'none' : 'auto';
+    }
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  })();
+</script>
+"""
+
+BUTTON_CSS = """
+<style>
+  /* Keep the "new note" button compact, but swap its label on hover. */
+  div.st-key-add_note_btn button p { font-size: 0; }
+  div.st-key-add_note_btn button p::after {
+    content: "\\2795";                 /* heavy plus sign */
+    font-size: 1.05rem;
+    line-height: 1.5;
+  }
+  div.st-key-add_note_btn button:hover p::after {
+    content: "Create a New Note";
+    font-size: .92rem;
+    font-weight: 600;
+  }
+  div.st-key-add_note_btn button {
+    white-space: nowrap;
+    transition: color .15s ease, background-color .15s ease, border-color .15s ease;
+  }
+</style>
+"""
+
+
+def _note_html(row):
+    return (
+        '<article class="note"><div class="note-head">'
+        '<span class="note-title">' + html.escape(row["title"]) + "</span>"
+        '<span class="note-date">' + html.escape(str(row["date_created"])) + "</span>"
+        "</div>"
+        '<div class="note-body">' + row["content"] + "</div>"
+        "</article>"
+    )
+
+
+def _folders_html(subjects, open_subject):
+    blocks = []
+    for subject in subjects:
+        notes = get_notes(subject)
+        if notes:
+            count = f"{len(notes)} note" + ("s" if len(notes) != 1 else "")
+            inner = "".join(_note_html(row) for row in notes)
+        else:
+            count = "empty"
+            inner = (
+                '<p class="empty">No notes yet &mdash; press the &#65291; button '
+                "above to add one.</p>"
+            )
+        open_cls = " open" if open_subject and subject == open_subject else ""
+        blocks.append(
+            '<section class="folder' + open_cls + '" data-subject="'
+            + html.escape(subject, quote=True) + '">'
+            '<button class="folder-header" type="button">'
+            '<span class="chev">&#9656;</span>'
+            '<span class="folder-name">' + html.escape(subject) + "</span>"
+            '<span class="folder-count">' + count + "</span>"
+            "</button>"
+            '<div class="folder-body"><div class="inner">' + inner + "</div></div>"
+            "</section>"
+        )
+    return "\n".join(blocks)
+
+
+def render_notebook(subjects, open_subject):
+    doc = NOTEBOOK_TEMPLATE.replace("__H__", str(SCROLLER_H)).replace(
+        "<!--FOLDERS-->", _folders_html(subjects, open_subject)
+    )
+    components.html(doc, height=SCROLLER_H + 8, scrolling=False)
+
+
+# --------------------------------------------------------------------------- #
 # Dialog
 # --------------------------------------------------------------------------- #
 @st.dialog("New note", width="large")
@@ -246,45 +501,26 @@ def new_note_dialog(subjects):
 # Main
 # --------------------------------------------------------------------------- #
 def main():
-    st.set_page_config(page_title="Study Hub Notes", page_icon="📝")
+    st.set_page_config(page_title="Notes from St. Pedro Calungsod", page_icon="📝")
     init_db()
 
-    st.title("📝 Study Hub Notes")
+    st.markdown(BUTTON_CSS, unsafe_allow_html=True)
 
     subjects = subject_list()
 
     if "selected_subject" not in st.session_state:
-        st.session_state.selected_subject = subjects[0]
+        st.session_state.selected_subject = None
 
-    cols = st.columns(len(subjects) + 1)
-
-    if cols[0].button("➕", key="add_note_btn", use_container_width=True):
+    left = st.columns([1, 3])[0]
+    if left.button(
+        "➕",
+        key="add_note_btn",
+        help="Create a New Note",
+        use_container_width=True,
+    ):
         new_note_dialog(subjects)
 
-    for col, subject in zip(cols[1:], subjects):
-        is_active = st.session_state.selected_subject == subject
-        if col.button(
-            subject,
-            key=f"subject_btn_{subject}",
-            type="primary" if is_active else "secondary",
-            use_container_width=True,
-        ):
-            st.session_state.selected_subject = subject
-            st.rerun()
-
-    selected_subject = st.session_state.selected_subject
-    st.subheader(selected_subject)
-
-    notes = get_notes(selected_subject)
-
-    if not notes:
-        st.info(f"No notes for {selected_subject} yet. Press ➕ to add one.")
-        return
-
-    st.caption(f"{len(notes)} note(s)")
-    for note in notes:
-        with st.expander(f"{note['title']}  —  {note['date_created']}"):
-            st.markdown(note["content"], unsafe_allow_html=True)
+    render_notebook(subjects, st.session_state.selected_subject)
 
 
 if __name__ == "__main__":
