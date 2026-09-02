@@ -227,6 +227,8 @@ NOTEBOOK_TEMPLATE = """
   #brand {
     text-align: center;
     padding: 20px 12px 28px;
+    background: transparent;      /* no solid fill */
+    box-shadow: none;             /* no shadow */
     transition: opacity .2s linear, transform .2s linear;
     will-change: opacity, transform;
   }
@@ -314,7 +316,7 @@ NOTEBOOK_TEMPLATE = """
 <div id="scroller">
   <header id="brand">
     <h1>Notes from St. Pedro Calungsod</h1>
-    <p class="est">est. 2026</p>
+    <p class="est">est. 2026 | You can't handle our swag</p>
   </header>
   <div id="folders">
     <!--FOLDERS-->
@@ -358,8 +360,38 @@ NOTEBOOK_TEMPLATE = """
 </script>
 """
 
-BUTTON_CSS = """
+# Rotating quotes shown in the floating footer.
+FOOTER_QUOTES = [
+    ("To live without hope is to cease to live.", "Fyodor Dostoevsky"),
+    ("I came, I saw, I conquered.", "Julius Caesar"),
+    (
+        "It's not what happens to you, but how you react to it that matters.",
+        "Epictetus",
+    ),
+]
+
+
+def _footer_html():
+    spans = "".join(
+        "<span>&ldquo;" + html.escape(quote) + "&rdquo; &mdash; "
+        + html.escape(author) + "</span>"
+        for quote, author in FOOTER_QUOTES
+    )
+    return '<div class="spc-footer"><div class="spc-quotes">' + spans + "</div></div>"
+
+
+PAGE_CHROME = (
+    """
 <style>
+  /* (1) Transparent top header: no solid fill, no shadow. */
+  [data-testid="stHeader"],
+  header.stAppHeader,
+  [data-testid="stToolbar"] {
+    background: transparent !important;
+    box-shadow: none !important;
+    border-bottom: none !important;
+  }
+
   /* Keep the "new note" button compact, but swap its label on hover. */
   div.st-key-add_note_btn button p { font-size: 0; }
   div.st-key-add_note_btn button p::after {
@@ -376,8 +408,62 @@ BUTTON_CSS = """
     white-space: nowrap;
     transition: color .15s ease, background-color .15s ease, border-color .15s ease;
   }
+
+  /* (3) Sticky floating footer with small, mobile-friendly rotating quotes. */
+  [data-testid="stMainBlockContainer"],
+  [data-testid="stAppViewContainer"] .block-container {
+    padding-bottom: 4.5rem;
+  }
+  .spc-footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    padding: 7px 14px;
+    background: transparent;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    pointer-events: none;
+  }
+  .spc-quotes {
+    position: relative;
+    width: 100%;
+    max-width: 760px;
+    min-height: 2.6em;
+    text-align: center;
+    pointer-events: auto;
+  }
+  .spc-quotes span {
+    position: absolute;
+    left: 0;
+    right: 0;
+    margin: 0 auto;
+    padding: 0 6px;
+    font-size: .72rem;
+    line-height: 1.35;
+    opacity: 0;
+    animation: spcQuote 21s infinite;
+  }
+  .spc-quotes span:nth-child(2) { animation-delay: 7s; }
+  .spc-quotes span:nth-child(3) { animation-delay: 14s; }
+  @keyframes spcQuote {
+    0%, 1%    { opacity: 0; transform: translateY(5px); }
+    4%, 29%   { opacity: .7; transform: translateY(0); }
+    33%, 100% { opacity: 0; transform: translateY(-5px); }
+  }
+  @media (max-width: 640px) {
+    .spc-quotes span { font-size: .66rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spc-quotes span { animation-duration: 21s; }
+  }
 </style>
 """
+    + _footer_html()
+)
 
 
 def _note_html(row):
@@ -504,7 +590,7 @@ def main():
     st.set_page_config(page_title="Notes from St. Pedro Calungsod", page_icon="📝")
     init_db()
 
-    st.markdown(BUTTON_CSS, unsafe_allow_html=True)
+    st.markdown(PAGE_CHROME, unsafe_allow_html=True)
 
     subjects = subject_list()
 
